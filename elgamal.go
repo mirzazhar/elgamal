@@ -60,6 +60,56 @@ func GeneratePQZp(bitsize, probability int) (p, q, g *big.Int, err error) {
 	return Gen(bitsize, probability)
 }
 
+// Encrypt encrypts a plain text represented as a byte array. It returns
+// an error if plain text value is larger than modulus P of Public key.
+func (pub *PublicKey) Encrypt(message []byte) ([]byte, []byte, error) {
+	// choose random integer k from {1...p}
+	k, err := rand.Int(rand.Reader, pub.P)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	m := new(big.Int).SetBytes(message)
+	if m.Cmp(pub.P) == 1 { //  m < P
+		return nil, nil, ErrMessageLarge
+	}
+
+	// c1 = g^k mod p
+	c1 := new(big.Int).Exp(pub.G, k, pub.P)
+	// s = y^k mod p
+	s := new(big.Int).Exp(pub.Y, k, pub.P)
+	// c2 = m*s mod p
+	c2 := new(big.Int).Mod(
+		new(big.Int).Mul(m, s),
+		pub.P,
+	)
+	return c1.Bytes(), c2.Bytes(), nil
+}
+
+// Decrypt decrypts the passed cipher text. It returns an
+// error if cipher text value is larger than modulus P of Public key.
+func (priv *PrivateKey) Decrypt(cipher1, cipher2 []byte) ([]byte, error) {
+	c1 := new(big.Int).SetBytes(cipher1)
+	c2 := new(big.Int).SetBytes(cipher2)
+	if c1.Cmp(priv.P) == 1 && c2.Cmp(priv.P) == 1 { //  (c1, c2) < P
+		return nil, ErrCipherLarge
+	}
+
+	// s = c^x mod p
+	s := new(big.Int).Exp(c1, priv.X, priv.P)
+	// s = s(inv) = s^(-1) mod p
+	if s.ModInverse(s, priv.P) == nil {
+		return nil, errors.New("elgamal: invalid private key")
+	}
+
+	// m = s(inv) * c2 mod p
+	m := new(big.Int).Mod(
+		new(big.Int).Mul(s, c2),
+		priv.P,
+	)
+	return m.Bytes(), nil
+}
+
 // Note : this section of code is taken from (https://github.com/ldinc/pqg).
 // Author of this code is "Drogunov Igor".
 // Gen emit <p,q,g>.
