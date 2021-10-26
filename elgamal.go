@@ -110,6 +110,74 @@ func (priv *PrivateKey) Decrypt(cipher1, cipher2 []byte) ([]byte, error) {
 	return m.Bytes(), nil
 }
 
+// HomomorphicEncTwo performs homomorphic operation over two passed chiphers.
+// Elgamal has multiplicative homomorphic property, so resultant cipher
+// contains the product of two numbers.
+func (pub *PublicKey) HomomorphicEncTwo(c1, c2, c1dash, c2dash []byte) ([]byte, []byte, error) {
+	cipher1 := new(big.Int).SetBytes(c1)
+	cipher2 := new(big.Int).SetBytes(c2)
+	if cipher1.Cmp(pub.P) == 1 && cipher2.Cmp(pub.P) == 1 { //  (c1, c2) < P
+		return nil, nil, ErrCipherLarge
+	}
+
+	// In the context of elgamal encryption, (cipher1,cipher2) and
+	// (cipher1dash, cipher2dash) both are valid ciphers and represented
+	// by different variable names.
+	cipher1dash := new(big.Int).SetBytes(c1dash)
+	cipher2dash := new(big.Int).SetBytes(c2dash)
+	if cipher1dash.Cmp(pub.P) == 1 && cipher2dash.Cmp(pub.P) == 1 { //  (c1dash, c2dash) < P
+		return nil, nil, ErrCipherLarge
+	}
+
+	// C1 = c1 * c1dash mod p
+	C1 := new(big.Int).Mod(
+		new(big.Int).Mul(cipher1, cipher1dash),
+		pub.P,
+	)
+
+	// C2 = c2 * c2dash mod p
+	C2 := new(big.Int).Mod(
+		new(big.Int).Mul(cipher2, cipher2dash),
+		pub.P,
+	)
+	return C1.Bytes(), C2.Bytes(), nil
+}
+
+// HommorphicEncMultiple performs homomorphic operation over multiple passed chiphers.
+// Elgamal has multiplicative homomorphic property, so resultant cipher
+// contains the product of multiple numbers.
+func (pub *PublicKey) HommorphicEncMultiple(ciphertext [][2][]byte) ([]byte, []byte, error) {
+	// C1, C2, _ := pub.Encrypt(one.Bytes())
+	C1 := one // since, c = 1^e mod n is equal to 1
+	C2 := one
+
+	for i := 0; i < len(ciphertext); i++ {
+		c1 := new(big.Int).SetBytes(ciphertext[i][0])
+		c2 := new(big.Int).SetBytes(ciphertext[i][1])
+
+		if c1.Cmp(pub.P) == 1 && c2.Cmp(pub.P) == 1 { //  (c1, c2) < P
+			return nil, nil, ErrCipherLarge
+		}
+
+		// C1 = (c1)_1 * (c1)_2 * (c1)_3 ...(c1)_n mod p
+		C1 = new(big.Int).Mod(
+			new(big.Int).Mul(
+				C1,
+				c1),
+			pub.P,
+		)
+
+		// C2 = (c2)_1 * (c2)_2 * (c2)_3 ...(c2)_n mod p
+		C2 = new(big.Int).Mod(
+			new(big.Int).Mul(
+				C2,
+				c2),
+			pub.P,
+		)
+	}
+	return C1.Bytes(), C2.Bytes(), nil
+}
+
 // Note : this section of code is taken from (https://github.com/ldinc/pqg).
 // Author of this code is "Drogunov Igor".
 // Gen emit <p,q,g>.
