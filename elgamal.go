@@ -4,6 +4,9 @@ import (
 	"crypto/rand"
 	"errors"
 	"math/big"
+	"time"
+
+	mathrand "math/rand"
 )
 
 var zero = big.NewInt(0)
@@ -22,6 +25,39 @@ type PublicKey struct {
 type PrivateKey struct {
 	PublicKey
 	X *big.Int
+}
+
+// GenerateKey generates elgamal private key according
+// to given bit size and probability. Moreover, the given probability
+// value is used in choosing prime number P for performing n Miller-Rabin
+// tests with 1 - 1/(4^n) probability false rate.
+func GenerateKey(bitsize, probability int) (*PrivateKey, error) {
+	// p is prime number
+	// q is prime group order
+	// g is cyclic group generator Zp
+	p, q, g, err := GeneratePQZp(bitsize, probability)
+	if err != nil {
+		return nil, err
+	}
+
+	randSource := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+	// choose random integer x from {1...(q-1)}
+	priv := new(big.Int).Rand(randSource, new(big.Int).Sub(q, one))
+	// y = g^p mod p
+	y := new(big.Int).Exp(g, priv, p)
+
+	return &PrivateKey{
+		PublicKey: PublicKey{
+			G: g, // cyclic group generator Zp
+			P: p, // prime number
+			Y: y, // y = g^p mod p
+		},
+		X: priv, // secret key x
+	}, nil
+}
+
+func GeneratePQZp(bitsize, probability int) (p, q, g *big.Int, err error) {
+	return Gen(bitsize, probability)
 }
 
 // Note : this section of code is taken from (https://github.com/ldinc/pqg).
