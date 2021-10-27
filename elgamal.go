@@ -2,6 +2,7 @@ package elgamal
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"math/big"
 	"time"
@@ -176,6 +177,98 @@ func (pub *PublicKey) HommorphicEncMultiple(ciphertext [][2][]byte) ([]byte, []b
 		)
 	}
 	return C1.Bytes(), C2.Bytes(), nil
+}
+
+// Signature generates signature over the given message. It returns signature
+// value consisting of two parts "r" and "s" as byte arrays.
+func (priv *PrivateKey) Signature(message []byte) ([]byte, []byte, error) {
+	k := new(big.Int)
+	gcd := new(big.Int)
+	var err error
+
+	// choosing random integer k from {1...(p-2)}, such that
+	// gcd(k,(p-1)) should be equal to 1.
+	for {
+		k, err = rand.Int(rand.Reader, new(big.Int).Sub(priv.P, two))
+		if err != nil {
+			return nil, nil, err
+		}
+		if k.Cmp(one) == 0 {
+			continue
+		} else {
+			gcd = gcd.GCD(nil, nil, k, new(big.Int).Sub(priv.P, one))
+			if gcd.Cmp(one) == 0 {
+				break
+			}
+		}
+	}
+
+	// taking SHA256 of the message
+	hashofm := sha256.Sum256(message)
+	// m as H(m)
+	m := new(big.Int).SetBytes(hashofm[:])
+
+	// r = g^k mod p
+	r := new(big.Int).Exp(priv.G, k, priv.P)
+	// xr = x * r
+	xr := new(big.Int).Mod(
+		new(big.Int).Mul(r, priv.X),
+		new(big.Int).Sub(priv.P, one),
+	)
+
+	// hmxr = [H(m) -xr]
+	hmxr := new(big.Int).Sub(m, xr)
+	// k = k^(-1)
+	k = k.ModInverse(k, new(big.Int).Sub(priv.P, one))
+
+	// s = [H(m) -xr]k^(-1) mod (p-1)
+	s := new(big.Int).Mod(
+		new(big.Int).Mul(hmxr, k),
+		new(big.Int).Sub(priv.P, one),
+	)
+	return r.Bytes(), s.Bytes(), nil
+}
+
+// SigVerify verifies signature over the given message and signature values (r & s).
+// It returns true as a boolean value if signature is verify correctly. Otherwise
+// it returns false along with error message.
+func (pub *PublicKey) SigVerify(r, s, message []byte) (bool, error) {
+	// verify that 0 < r < p
+	signr := new(big.Int).SetBytes(r)
+	if signr.Cmp(zero) == -1 {
+		return false, errors.New("r is smaller than zero")
+	} else if signr.Cmp(pub.P) == +1 {
+		return false, errors.New("r is larger than public key p")
+	}
+
+	signs := new(big.Int).SetBytes(s)
+	if signs.Cmp(zero) == -1 {
+		return false, errors.New("s is smaller than zero")
+	} else if signs.Cmp(new(big.Int).Sub(pub.P, one)) == +1 {
+		return false, errors.New("s is larger than public key p")
+	}
+
+	// taking SHA256 of the message
+	hashofm := sha256.Sum256(message)
+	// m as H(m)
+	m := new(big.Int).SetBytes(hashofm[:])
+	// ghashm = g^[H(m)] mod p
+	ghashm := new(big.Int).Exp(pub.G, m, pub.P)
+
+	// y^r * r*s mod p
+	YrRs := new(big.Int).Mod(
+		new(big.Int).Mul(
+			new(big.Int).Exp(pub.Y, signr, pub.P),
+			new(big.Int).Exp(signr, signs, pub.P),
+		),
+		pub.P,
+	)
+
+	// g^H(m) y^r * r*s mod p
+	if ghashm.Cmp(YrRs) == 0 {
+		return true, nil // signature is verified
+	}
+	return false, errors.New("signature is not verified")
 }
 
 // Note : this section of code is taken from (https://github.com/ldinc/pqg).
